@@ -1,4 +1,6 @@
-from flask import Flask, request, redirect
+from flask import Flask, request, Response
+import yt_dlp
+import requests
 
 app = Flask(__name__)
 
@@ -6,24 +8,32 @@ app = Flask(__name__)
 def descargar():
     video_url = request.args.get('url')
     if not video_url:
-        return "Error", 400
+        return "Error: No URL", 400
     
-    # Extraemos el ID del video del enlace de YouTube
-    # Ejemplo: https://www.youtube.com/watch?v=EMKbOG_Rx8w -> EMKbOG_Rx8w
-    video_id = ""
-    if "v=" in video_url:
-        video_id = video_url.split("v=")[1].split("&")[0]
-    elif "youtu.be/" in video_url:
-        video_id = video_url.split("youtu.be/")[1].split("?")[0]
+    ydl_opts = {
+        'format': 'best',
+        'quiet': True,
+        'no_warnings': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    }
     
-    if not video_id:
-        return "URL no válida", 400
-
-    # APLICAMOS EL TRUCO: Redirigimos a un servicio que fuerza la descarga automáticamente
-    # Usamos un servicio que maneja el truco de la URL por nosotros
-    url_truco = f"https://ssyoutube.com/watch?v={video_id}"
-    
-    return redirect(url_truco)
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(video_url, download=False)
+            url_video_real = info['url']
+            
+            # Aquí está el truco: descargamos el stream del video en el servidor 
+            # y lo enviamos al usuario como una descarga forzada
+            video_stream = requests.get(url_video_real, stream=True)
+            
+            return Response(
+                video_stream.iter_content(chunk_size=1024*1024),
+                content_type='video/mp4',
+                headers={'Content-Disposition': 'attachment; filename="nexo_video.mp4"'}
+            )
+            
+        except Exception as e:
+            return f"Error: {str(e)}", 500
 
 if __name__ == '__main__':
     app.run()
