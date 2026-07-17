@@ -1,4 +1,4 @@
-from Flask import Flask, request, jsonify
+from flask import Flask, request, jsonify
 import yt_dlp
 import os
 
@@ -9,14 +9,13 @@ COOKIES_FILE = 'cookies.txt'
 
 @app.route('/get_video_info', methods=['GET'])
 def get_video_info():
-    Url = request.args.get('url')
+    url = request.args.get('url')
     if not url:
         return jsonify({"error": "Falta la URL"}), 400
         
     try:
-        # Forzamos a yt-dlp a buscar formatos de video reales (MP4, WebM, etc.)
-        # Evitamos 'all' para que no nos devuelva archivos basura como mhtml o storyboards.
-        Ydl_opts = {
+        # Configuración para forzar formatos de video reales y evitar metadatos raros
+        ydl_opts = {
             'format': 'bestvideo+bestaudio/best',
             'quiet': True,
             'no_warnings': True,
@@ -36,18 +35,18 @@ def get_video_info():
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # Extraemos la información del video
-            Info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(url, download=False)
             
             streams = []
             formats = info.get('formats', [])
             
             for f in formats:
                 ext = f.get('ext', '')
-                # Filtro estricto: Descartamos formatos de audio solo o páginas web (mhtml)
-                if ext in ['mhtml', 'storyboard', 'mhtml'] or f.get('vcodec') == 'none':
+                # Descartamos formatos de audio solo o páginas web (mhtml)
+                if ext in ['mhtml', 'storyboard'] or f.get('vcodec') == 'none':
                     continue
                 
-                # Nos aseguramos de que tenga un enlace url directo válido
+                # Nos aseguramos de que tenga un enlace directo
                 if f.get('url'):
                     height = f.get('height')
                     
@@ -64,7 +63,7 @@ def get_video_info():
                             })
             
             # Ordenamos las calidades de mayor a menor (ej. 1080p, 720p, 480p, 360p)
-            Streams.sort(key=lambda x: int(x['resolution'].replace('p', '')) if x['resolution'].replace('p', '').isdigit() else 0, reverse=True)
+            streams.sort(key=lambda x: int(x['resolution'].replace('p', '')) if x['resolution'].replace('p', '').isdigit() else 0, reverse=True)
 
             if not streams:
                 return jsonify({"error": "No se encontraron formatos de video estándar y limpios disponibles."}), 400
@@ -78,4 +77,4 @@ def get_video_info():
         return jsonify({"error": f"Error al procesar con yt-dlp: {str(e)}"}), 400
 
 if __name__ == '__main__':
-    App.run()
+    app.run()
