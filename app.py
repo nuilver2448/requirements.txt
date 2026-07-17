@@ -14,9 +14,9 @@ def get_video_info():
         return jsonify({"error": "Falta la URL"}), 400
         
     try:
-        # Configuración base de yt-dlp
+        # Configuración base flexible de yt-dlp para evitar errores de formato
         ydl_opts = {
-            'format': 'best',
+            'format': 'bestvideo+bestaudio/best',  # Formato compatible con cookies
             'quiet': True,
             'no_warnings': True,
         }
@@ -29,13 +29,14 @@ def get_video_info():
             print("Advertencia: No se encontró el archivo cookies.txt en el directorio.")
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Extraemos la información del video
+            # Extraemos la información del video sin descargarlo
             info = ydl.extract_info(url, download=False)
             
             streams = []
             formats = info.get('formats', [])
             
             for f in formats:
+                # Filtramos solo formatos combinados (video + audio) para simplificar
                 if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url'):
                     resolution = f.get('resolution') or f"{(f.get('height') or f.get('width') or 'video')}p"
                     
@@ -45,6 +46,7 @@ def get_video_info():
                         "mime_type": f.get('ext', 'mp4')
                     })
             
+            # Formato de respaldo por defecto si no detecta formatos combinados específicos
             if not streams and info.get('url'):
                 streams.append({
                     "resolution": info.get('resolution') or "best",
