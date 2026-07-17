@@ -14,9 +14,9 @@ def get_video_info():
         return jsonify({"error": "Falta la URL"}), 400
         
     try:
-        # Configuración base flexible de yt-dlp para evitar errores de formato
+        # Configuración ultra-flexible: extraemos todos los formatos disponibles sin filtrar aquí
         ydl_opts = {
-            'format': 'bestvideo+bestaudio/best',  # Formato compatible con cookies
+            'format': 'all',  # <--- Evita que yt-dlp lance error por no encontrar un formato específico
             'quiet': True,
             'no_warnings': True,
         }
@@ -29,16 +29,20 @@ def get_video_info():
             print("Advertencia: No se encontró el archivo cookies.txt en el directorio.")
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Extraemos la información del video sin descargarlo
+            # Extraemos la información completa
             info = ydl.extract_info(url, download=False)
             
             streams = []
             formats = info.get('formats', [])
             
             for f in formats:
-                # Filtramos solo formatos combinados (video + audio) para simplificar
+                # Filtramos manualmente formatos que tengan video, audio y un enlace válido
                 if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url'):
-                    resolution = f.get('resolution') or f"{(f.get('height') or f.get('width') or 'video')}p"
+                    # Determinamos la resolución de manera segura
+                    resolution = f.get('resolution')
+                    if not resolution:
+                        height = f.get('height')
+                        resolution = f"{height}p" if height else "video"
                     
                     streams.append({
                         "resolution": resolution,
@@ -46,13 +50,17 @@ def get_video_info():
                         "mime_type": f.get('ext', 'mp4')
                     })
             
-            # Formato de respaldo por defecto si no detecta formatos combinados específicos
+            # Si tras filtrar no quedó ninguno, intentamos usar el formato directo que youtube-dl considere mejor
             if not streams and info.get('url'):
                 streams.append({
-                    "resolution": info.get('resolution') or "best",
+                    "resolution": info.get('resolution') or "default",
                     "url": info['url'],
                     "mime_type": info.get('ext', 'mp4')
                 })
+
+            # Si de plano no hay ningún enlace útil, lanzamos un error controlado
+            if not streams:
+                return jsonify({"error": "No se encontraron formatos de video directo compatibles para este enlace."}), 400
 
             return jsonify({
                 "title": info.get('title', 'video'), 
