@@ -1,37 +1,39 @@
-from flask import Flask, request, Response
+from flask import Flask, request, render_template_string
 import yt_dlp
-import requests
 
 app = Flask(__name__)
 
-@app.route('/descargar')
-def descargar():
-    video_url = request.args.get('url')
-    if not video_url or "odysee.com" not in video_url:
-        return "Error: Solo se permiten enlaces de Odysee", 400
+# Esta interfaz es minimalista para que cargue perfecto en tu app
+UI_TEMPLATE = """
+<html>
+<body style="background-color: #121212; color: white; font-family: sans-serif; padding: 20px;">
+    <h2 style="color: #03dac6;">Resultados de búsqueda</h2>
+    {% for v in results %}
+        <div style="border-bottom: 1px solid #333; padding: 15px 0;">
+            <p style="margin-bottom: 10px;">{{ v.title }}</p>
+            <!-- Enlace temporal solo para verificar que funciona -->
+            <a href="{{ v.webpage_url }}" style="color: #bb86fc;">Ver en Odysee</a>
+        </div>
+    {% endfor %}
+</body>
+</html>
+"""
+
+@app.route('/buscar')
+def buscar():
+    query = request.args.get('q')
+    if not query:
+        return "Por favor, escribe algo para buscar.", 400
     
-    # Configuración limpia para Odysee
-    ydl_opts = {
-        'format': 'best',
-        'quiet': True,
-    }
-    
+    # Buscamos en Odysee
+    ydl_opts = {'quiet': True, 'default_search': 'odysee'}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
-            info = ydl.extract_info(video_url, download=False)
-            url_video_real = info['url']
-            
-            # Descargamos el stream y lo enviamos al usuario
-            video_stream = requests.get(url_video_real, stream=True)
-            
-            return Response(
-                video_stream.iter_content(chunk_size=1024*1024),
-                content_type='video/mp4',
-                headers={'Content-Disposition': 'attachment; filename="video_odysee.mp4"'}
-            )
-            
+            # Obtenemos los 5 primeros resultados
+            search_results = ydl.extract_info(f"ytsearch5:{query}", download=False)['entries']
+            return render_template_string(UI_TEMPLATE, results=search_results)
         except Exception as e:
-            return f"Error procesando el video de Odysee: {str(e)}", 500
+            return f"Error en la búsqueda: {str(e)}", 500
 
 if __name__ == '__main__':
     app.run()
