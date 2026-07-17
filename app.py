@@ -5,12 +5,12 @@ import os
 
 app = Flask(__name__)
 
-# Configuración del Proxy (Asegúrate de que este proxy siga activo en Webshare)
+# Configuración del Proxy
 PROXY_URL = "http://xgazzmhp:5uqjrn9myazq@31.59.20.176:6754"
 
-@app.route('/')
-def home():
-    return "Servidor activo y funcionando correctamente"
+# Ruta absoluta para que encuentre el archivo cookies.txt
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+COOKIES_PATH = os.path.join(BASE_DIR, 'cookies.txt')
 
 @app.route('/descargar')
 def descargar():
@@ -19,17 +19,18 @@ def descargar():
         return "Falta la URL", 400
     
     try:
-        # Extraer info usando proxy
+        # Configuración forzando el uso de las cookies
         ydl_opts = {
             'format': 'best',
             'proxy': PROXY_URL,
             'quiet': True,
+            'cookiefile': COOKIES_PATH,  # Aquí usamos la ruta absoluta
         }
+        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             video_url = info['url']
         
-        # Realizar la descarga puente
         r = requests.get(video_url, stream=True)
         return Response(
             r.iter_content(chunk_size=1024*1024), 
@@ -37,7 +38,7 @@ def descargar():
             headers={'Content-Disposition': 'attachment; filename="video.mp4"'}
         )
     except Exception as e:
-        return f"Error: {str(e)}", 500
+        return f"Error con cookies o proxy: {str(e)}", 500
 
 @app.route('/get_video_info', methods=['GET'])
 def get_video_info():
@@ -46,7 +47,11 @@ def get_video_info():
         return {"error": "Falta la URL"}, 400
         
     try:
-        ydl_opts = {'proxy': PROXY_URL, 'quiet': True}
+        ydl_opts = {
+            'proxy': PROXY_URL, 
+            'quiet': True,
+            'cookiefile': COOKIES_PATH
+        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             streams = []
@@ -64,6 +69,5 @@ def get_video_info():
         return {"error": str(e)}, 500
 
 if __name__ == '__main__':
-    # Render asigna el puerto automáticamente
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
