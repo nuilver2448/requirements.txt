@@ -14,14 +14,13 @@ def get_video_info():
         return jsonify({"error": "Falta la URL"}), 400
         
     try:
-        # Configuración ultra-flexible: extraemos todos los formatos disponibles sin filtrar aquí
+        # Extraemos todos los formatos para evitar bloqueos por restricciones de descarga
         ydl_opts = {
-            'format': 'all',  # <--- Evita que yt-dlp lance error por no encontrar un formato específico
+            'format': 'all',
             'quiet': True,
             'no_warnings': True,
         }
         
-        # Si el archivo cookies.txt existe en el servidor, lo aplicamos
         if os.path.exists(COOKIES_FILE):
             ydl_opts['cookiefile'] = COOKIES_FILE
             print("Usando archivo cookies.txt para evadir el bloqueo.")
@@ -29,38 +28,47 @@ def get_video_info():
             print("Advertencia: No se encontró el archivo cookies.txt en el directorio.")
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Extraemos la información completa
             info = ydl.extract_info(url, download=False)
             
             streams = []
             formats = info.get('formats', [])
             
             for f in formats:
-                # Filtramos manualmente formatos que tengan video, audio y un enlace válido
-                if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url'):
-                    # Determinamos la resolución de manera segura
-                    resolution = f.get('resolution')
-                    if not resolution:
-                        height = f.get('height')
-                        resolution = f"{height}p" if height else "video"
+                ext = f.get('ext', '')
+                # 1. Filtramos para descartar extensiones raras como mhtml, storyboards (mhtml) o solo audio
+                if ext in ['mhtml', 'storyboard'] or f.get('vcodec') == 'none':
+                    continue
+                
+                # 2. Nos aseguramos de que tenga un enlace url directo válido
+                if f.get('url'):
+                    # Obtenemos la altura del video (ej. 360, 720, 1080)
+                    height = f.get('height')
                     
-                    streams.append({
-                        "resolution": resolution,
-                        "url": f['url'],
-                        "mime_type": f.get('ext', 'mp4')
-                    })
+                    # Ignoramos resoluciones extremadamente bajas que suelen ser miniaturas o fallos
+                    if height and height >= 144:
+                        resolution = f"{height}p"
+                        
+                        # Evitamos duplicados en la lista final
+                        if not any(s['resolution'] == resolution for s in streams):
+                            streams.append({
+                                "resolution": resolution,
+                                "url": f['url'],
+                                "mime_type": ext if ext else "mp4"
+                            })
             
-            # Si tras filtrar no quedó ninguno, intentamos usar el formato directo que youtube-dl considere mejor
+            # Ordenamos las calidades de mayor a menor (ej. 1080p, 720p, 360p)
+            streams.sort(key=lambda x: int(x['resolution'].replace('p', '')) if x['resolution'].replace('p', '').isdigit() else 0, reverse=True)
+
+            # Si por algún motivo el filtro estricto falló, usamos el formato básico por defecto
             if not streams and info.get('url'):
                 streams.append({
-                    "resolution": info.get('resolution') or "default",
+                    "resolution": "Default (Best)",
                     "url": info['url'],
                     "mime_type": info.get('ext', 'mp4')
                 })
 
-            # Si de plano no hay ningún enlace útil, lanzamos un error controlado
             if not streams:
-                return jsonify({"error": "No se encontraron formatos de video directo compatibles para este enlace."}), 400
+                return jsonify({"error": "No se encontraron formatos de video estándar disponibles."}), 400
 
             return jsonify({
                 "title": info.get('title', 'video'), 
