@@ -1,82 +1,67 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, Response
 import yt_dlp
-import os
+import requests
 
 app = Flask(__name__)
 
-# =================================================================
-# CONFIGURACIÓN DEL PROXY (WEB-SHARE)
-# Este proxy enmascara la IP de Render para que YouTube no nos bloquee
-# =================================================================
+# Configuración del Proxy para saltar bloqueos de YouTube
 PROXY_URL = "http://xgazzmhp:5uqjrn9myazq@31.59.20.176:6754"
 
-# Ruta absoluta para el archivo cookies.txt
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-COOKIES_FILE = os.path.join(BASE_DIR, 'cookies.txt')
+@app.route('/descargar')
+def descargar():
+    url = request.args.get('url')
+    if not url:
+        return "Falta la URL", 400
+    
+    try:
+        # Extraemos la información del video usando el proxy
+        ydl_opts = {
+            'format': 'best',
+            'proxy': PROXY_URL,
+            'quiet': True,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            video_url = info['url']
+        
+        # El servidor de Render descarga el stream y lo pasa al usuario
+        # Esto evita el error 403 Forbidden al ser Render quien gestiona la conexión
+        r = requests.get(video_url, stream=True)
+        
+        return Response(
+            r.iter_content(chunk_size=1024*1024), 
+            content_type=r.headers.get('Content-Type', 'video/mp4'),
+            headers={'Content-Disposition': 'attachment; filename="video.mp4"'}
+        )
+        
+    except Exception as e:
+        return f"Error procesando la descarga: {str(e)}", 500
 
 @app.route('/get_video_info', methods=['GET'])
 def get_video_info():
+    # Mantenemos esta ruta para que tu App siga obteniendo la lista de calidades
     url = request.args.get('url')
     if not url:
-        return jsonify({"error": "Falta la URL"}), 400
+        return {"error": "Falta la URL"}, 400
         
     try:
-        ydl_opts = {
-            'format': 'bestvideo+bestaudio/best',
-            'quiet': True,
-            'no_warnings': True,
-            'check_formats': False,
-            'proxy': PROXY_URL,  # Activamos el enmascaramiento de IP
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            }
-        }
-        
-        # Aplicamos cookies si existen para mayor seguridad
-        if os.path.exists(COOKIES_FILE):
-            ydl_opts['cookiefile'] = COOKIES_FILE
-
+        ydl_opts = {'proxy': PROXY_URL, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            
             streams = []
-            formats = info.get('formats', [])
-            
-            for f in formats:
-                # Filtramos formatos no deseados
-                if f.get('ext') in ['mhtml', 'storyboard']:
-                    continue
-                
-                # Buscamos formatos con video y audio
+            for f in info.get('formats', []):
                 if f.get('vcodec') != 'none' and f.get('url'):
                     height = f.get('height')
                     if height and height >= 144:
-                        resolution = f"{height}p"
-                        
-                        if not any(s['resolution'] == resolution for s in streams):
-                            streams.append({
-                                "resolution": resolution,
-                                "url": f['url'],
-                                "mime_type": f.get('ext', 'mp4')
-                            })
-            
-            # Respaldo si no hay streams filtrados
-            if not streams and info.get('url'):
-                streams.append({
-                    "resolution": "Default",
-                    "url": info['url'],
-                    "mime_type": info.get('ext', 'mp4')
-                })
-
-            streams.sort(key=lambda x: int(x['resolution'].replace('p', '')) if x['resolution'].replace('p', '').isdigit() else 0, reverse=True)
-
-            return jsonify({
-                "title": info.get('title', 'video'), 
-                "streams": streams
-            })
-            
+                        streams.append({
+                            "resolution": f"{height}p",
+                            "url": f['url'],
+                            "mime_type": f.get('ext', 'mp4')
+                        })
+            return {"title": info.get('title', 'video'), "streams": streams}
     except Exception as e:
-        return jsonify({"error": f"Error crítico: {str(e)}"}), 400
+        return {"error": str(e)}, 500
 
 if __name__ == '__main__':
     app.run()
