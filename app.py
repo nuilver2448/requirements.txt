@@ -14,13 +14,20 @@ def get_video_info():
         return jsonify({"error": "Falta la URL"}), 400
         
     try:
-        # Extraemos todos los formatos para evitar bloqueos por restricciones de descarga
+        # Configuración ultra-flexible + simulación de navegador real
         ydl_opts = {
             'format': 'all',
             'quiet': True,
             'no_warnings': True,
+            # Añadimos cabeceras para que coincidan con un navegador real usando tus cookies
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
+            }
         }
         
+        # Si el archivo cookies.txt existe en el servidor, lo aplicamos
         if os.path.exists(COOKIES_FILE):
             ydl_opts['cookiefile'] = COOKIES_FILE
             print("Usando archivo cookies.txt para evadir el bloqueo.")
@@ -28,6 +35,7 @@ def get_video_info():
             print("Advertencia: No se encontró el archivo cookies.txt en el directorio.")
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Extraemos la información completa
             info = ydl.extract_info(url, download=False)
             
             streams = []
@@ -35,16 +43,15 @@ def get_video_info():
             
             for f in formats:
                 ext = f.get('ext', '')
-                # 1. Filtramos para descartar extensiones raras como mhtml, storyboards (mhtml) o solo audio
+                # Filtramos para descartar extensiones de página web o storyboards
                 if ext in ['mhtml', 'storyboard'] or f.get('vcodec') == 'none':
                     continue
                 
-                # 2. Nos aseguramos de que tenga un enlace url directo válido
+                # Nos aseguramos de que tenga un enlace url directo válido
                 if f.get('url'):
-                    # Obtenemos la altura del video (ej. 360, 720, 1080)
                     height = f.get('height')
                     
-                    # Ignoramos resoluciones extremadamente bajas que suelen ser miniaturas o fallos
+                    # Ignoramos resoluciones de miniatura sumamente bajas
                     if height and height >= 144:
                         resolution = f"{height}p"
                         
@@ -59,7 +66,7 @@ def get_video_info():
             # Ordenamos las calidades de mayor a menor (ej. 1080p, 720p, 360p)
             streams.sort(key=lambda x: int(x['resolution'].replace('p', '')) if x['resolution'].replace('p', '').isdigit() else 0, reverse=True)
 
-            # Si por algún motivo el filtro estricto falló, usamos el formato básico por defecto
+            # Respaldo básico si los filtros estrictos no devuelven nada
             if not streams and info.get('url'):
                 streams.append({
                     "resolution": "Default (Best)",
