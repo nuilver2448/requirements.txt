@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from Flask import Flask, request, jsonify
 import yt_dlp
 import os
 
@@ -9,17 +9,17 @@ COOKIES_FILE = 'cookies.txt'
 
 @app.route('/get_video_info', methods=['GET'])
 def get_video_info():
-    url = request.args.get('url')
+    Url = request.args.get('url')
     if not url:
         return jsonify({"error": "Falta la URL"}), 400
         
     try:
-        # Configuración ultra-flexible + simulación de navegador real
-        ydl_opts = {
-            'format': 'all',
+        # Forzamos a yt-dlp a buscar formatos de video reales (MP4, WebM, etc.)
+        # Evitamos 'all' para que no nos devuelva archivos basura como mhtml o storyboards.
+        Ydl_opts = {
+            'format': 'bestvideo+bestaudio/best',
             'quiet': True,
             'no_warnings': True,
-            # Añadimos cabeceras para que coincidan con un navegador real usando tus cookies
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -35,23 +35,23 @@ def get_video_info():
             print("Advertencia: No se encontró el archivo cookies.txt en el directorio.")
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Extraemos la información completa
-            info = ydl.extract_info(url, download=False)
+            # Extraemos la información del video
+            Info = ydl.extract_info(url, download=False)
             
             streams = []
             formats = info.get('formats', [])
             
             for f in formats:
                 ext = f.get('ext', '')
-                # Filtramos para descartar extensiones de página web o storyboards
-                if ext in ['mhtml', 'storyboard'] or f.get('vcodec') == 'none':
+                # Filtro estricto: Descartamos formatos de audio solo o páginas web (mhtml)
+                if ext in ['mhtml', 'storyboard', 'mhtml'] or f.get('vcodec') == 'none':
                     continue
                 
                 # Nos aseguramos de que tenga un enlace url directo válido
                 if f.get('url'):
                     height = f.get('height')
                     
-                    # Ignoramos resoluciones de miniatura sumamente bajas
+                    # Filtramos resoluciones normales de video (144p en adelante)
                     if height and height >= 144:
                         resolution = f"{height}p"
                         
@@ -63,19 +63,11 @@ def get_video_info():
                                 "mime_type": ext if ext else "mp4"
                             })
             
-            # Ordenamos las calidades de mayor a menor (ej. 1080p, 720p, 360p)
-            streams.sort(key=lambda x: int(x['resolution'].replace('p', '')) if x['resolution'].replace('p', '').isdigit() else 0, reverse=True)
-
-            # Respaldo básico si los filtros estrictos no devuelven nada
-            if not streams and info.get('url'):
-                streams.append({
-                    "resolution": "Default (Best)",
-                    "url": info['url'],
-                    "mime_type": info.get('ext', 'mp4')
-                })
+            # Ordenamos las calidades de mayor a menor (ej. 1080p, 720p, 480p, 360p)
+            Streams.sort(key=lambda x: int(x['resolution'].replace('p', '')) if x['resolution'].replace('p', '').isdigit() else 0, reverse=True)
 
             if not streams:
-                return jsonify({"error": "No se encontraron formatos de video estándar disponibles."}), 400
+                return jsonify({"error": "No se encontraron formatos de video estándar y limpios disponibles."}), 400
 
             return jsonify({
                 "title": info.get('title', 'video'), 
@@ -86,4 +78,4 @@ def get_video_info():
         return jsonify({"error": f"Error al procesar con yt-dlp: {str(e)}"}), 400
 
 if __name__ == '__main__':
-    app.run()
+    App.run()
