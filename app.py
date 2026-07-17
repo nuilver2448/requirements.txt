@@ -14,9 +14,9 @@ def get_video_info():
         return jsonify({"error": "Falta la URL"}), 400
         
     try:
-        # Configuración para forzar formatos de video reales y evitar metadatos raros
+        # Eliminamos la opción 'format' para que yt-dlp no intente validar formatos antes de tiempo.
+        # Esto previene por completo el error "Requested format is not available".
         ydl_opts = {
-            'format': 'bestvideo+bestaudio/best',
             'quiet': True,
             'no_warnings': True,
             'http_headers': {
@@ -34,7 +34,7 @@ def get_video_info():
             print("Advertencia: No se encontró el archivo cookies.txt en el directorio.")
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Extraemos la información del video
+            # Extraemos la información del video sin descargar nada
             info = ydl.extract_info(url, download=False)
             
             streams = []
@@ -42,11 +42,11 @@ def get_video_info():
             
             for f in formats:
                 ext = f.get('ext', '')
-                # Descartamos formatos de audio solo o páginas web (mhtml)
-                if ext in ['mhtml', 'storyboard'] or f.get('vcodec') == 'none':
+                # Filtro: Descartamos páginas web (mhtml), imágenes (storyboard) y pistas que solo tengan audio o solo video sin el otro.
+                if ext in ['mhtml', 'storyboard'] or f.get('vcodec') == 'none' or f.get('acodec') == 'none':
                     continue
                 
-                # Nos aseguramos de que tenga un enlace directo
+                # Nos aseguramos de que tenga un enlace url directo válido
                 if f.get('url'):
                     height = f.get('height')
                     
@@ -62,11 +62,19 @@ def get_video_info():
                                 "mime_type": ext if ext else "mp4"
                             })
             
-            # Ordenamos las calidades de mayor a menor (ej. 1080p, 720p, 480p, 360p)
+            # Ordenamos las calidades de mayor a menor (ej. 720p, 480p, 360p)
             streams.sort(key=lambda x: int(x['resolution'].replace('p', '')) if x['resolution'].replace('p', '').isdigit() else 0, reverse=True)
 
+            # Si por algún motivo no encontramos formatos combinados, usamos el enlace "best" directo que ofrece yt-dlp
             if not streams:
-                return jsonify({"error": "No se encontraron formatos de video estándar y limpios disponibles."}), 400
+                if info.get('url'):
+                    streams.append({
+                        "resolution": "Default (Best)",
+                        "url": info['url'],
+                        "mime_type": info.get('ext', 'mp4')
+                    })
+                else:
+                    return jsonify({"error": "No se encontraron formatos de video estándar y limpios disponibles."}), 400
 
             return jsonify({
                 "title": info.get('title', 'video'), 
