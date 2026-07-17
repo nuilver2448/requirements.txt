@@ -4,8 +4,9 @@ import os
 
 app = Flask(__name__)
 
-# Definimos la ruta del archivo de cookies en el servidor
-COOKIES_FILE = 'cookies.txt'
+# Usamos la ruta absoluta del directorio del script para evitar fallos de ubicación en Render
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+COOKIES_FILE = os.path.join(BASE_DIR, 'cookies.txt')
 
 @app.route('/get_video_info', methods=['GET'])
 def get_video_info():
@@ -14,11 +15,11 @@ def get_video_info():
         return jsonify({"error": "Falta la URL"}), 400
         
     try:
-        # Configuración ultra-segura para evitar validaciones pesadas en el servidor
+        # Configuración base segura
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'check_formats': False,  # <--- EVITA QUE YT-DLP VALIDE FORMATOS Y TRUENE EN RENDER
+            'check_formats': False,  # Evita validaciones pesadas en el servidor
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -26,12 +27,15 @@ def get_video_info():
             }
         }
         
-        # Si el archivo cookies.txt existe en el servidor, lo aplicamos
+        # Validación estricta del archivo de cookies
         if os.path.exists(COOKIES_FILE):
             ydl_opts['cookiefile'] = COOKIES_FILE
-            print("Usando archivo cookies.txt para evadir el bloqueo.")
+            print(f"ÉXITO: Usando archivo cookies detectado en: {COOKIES_FILE}")
         else:
-            print("Advertencia: No se encontró el archivo cookies.txt en el directorio.")
+            # Si no existe, le mandamos un error claro a la App para saber que no se subió bien
+            return jsonify({
+                "error": "Error de configuración: El archivo cookies.txt no se encuentra en el servidor. Por favor súbelo a GitHub."
+            }), 500
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # Extraemos la información del video
@@ -42,19 +46,16 @@ def get_video_info():
             
             for f in formats:
                 ext = f.get('ext', '')
-                # Filtramos: Descartamos páginas web (mhtml) e imágenes (storyboard)
+                # Filtramos formatos basura
                 if ext in ['mhtml', 'storyboard']:
                     continue
                 
-                # Buscamos formatos que tengan audio y video combinados para que Flutter los reproduzca/descargue directo sin problemas
+                # Buscamos formatos combinados (video + audio)
                 if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url'):
                     height = f.get('height')
-                    
-                    # Filtramos resoluciones normales (144p en adelante)
                     if height and height >= 144:
                         resolution = f"{height}p"
                         
-                        # Evitamos duplicados
                         if not any(s['resolution'] == resolution for s in streams):
                             streams.append({
                                 "resolution": resolution,
@@ -62,19 +63,19 @@ def get_video_info():
                                 "mime_type": ext if ext else "mp4"
                             })
             
-            # Si no encontramos formatos combinados por el filtro estricto, añadimos el mejor disponible por defecto
+            # Formato de respaldo por si el filtro estricto no arroja nada
             if not streams and info.get('url'):
                 streams.append({
-                    "resolution": "720p" if info.get('height') == 720 else "360p",
+                    "resolution": "Default (Best)",
                     "url": info['url'],
                     "mime_type": info.get('ext', 'mp4')
                 })
 
-            # Ordenamos las calidades de mayor a menor (ej. 720p, 360p)
+            # Ordenamos calidades
             streams.sort(key=lambda x: int(x['resolution'].replace('p', '')) if x['resolution'].replace('p', '').isdigit() else 0, reverse=True)
 
             if not streams:
-                return jsonify({"error": "No se encontraron formatos de video estándar y limpios disponibles."}), 400
+                return jsonify({"error": "No se encontraron formatos de video compatibles."}), 400
 
             return jsonify({
                 "title": info.get('title', 'video'), 
@@ -82,7 +83,13 @@ def get_video_info():
             })
             
     except Exception as e:
-        return jsonify({"error": f"Error al procesar con yt-dlp: {str(e)}"}), 400
+        # Añadimos un mensaje amigable si YouTube sigue detectando el bot
+        error_msg = str(e)
+        if "Sign in to confirm you're not a bot" in error_msg:
+            return jsonify({
+                "error": "YouTube bloqueó la petición temporalmente. Por favor, genera un archivo cookies.txt nuevo e inténtalo otra vez."
+            }), 403
+        return jsonify({"error": f"Error al procesar con yt-dlp: {error_msg}"}), 400
 
 if __name__ == '__main__':
     app.run()
